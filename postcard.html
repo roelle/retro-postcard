@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Retro Postcard Maker</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Courier New', monospace;
+  background: #1c1c1c; color: #ddd;
+  display: flex; height: 100vh; overflow: hidden;
+}
+
+#left {
+  width: 380px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  padding: 12px; gap: 10px; overflow-y: auto;
+  border-right: 1px solid #2e2e2e;
+}
+#right {
+  flex: 1; display: flex; flex-direction: column;
+  padding: 12px; gap: 8px; min-width: 0;
+}
+
+.label {
+  font-size: 10px; color: #666;
+  text-transform: uppercase; letter-spacing: 1.5px;
+  margin-bottom: 4px;
+}
+
+#drop-zone {
+  border: 2px dashed #3a3a3a; border-radius: 4px;
+  padding: 12px; text-align: center;
+  cursor: pointer; color: #555; font-size: 12px;
+  transition: border-color .15s, color .15s;
+  user-select: none;
+}
+#drop-zone:hover, #drop-zone.over { border-color: #c84; color: #aaa; }
+
+#img-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.thumb { width: 76px; text-align: center; cursor: default; }
+.thumb img { width: 76px; height: 48px; object-fit: cover; border-radius: 3px; border: 1px solid #3a3a3a; display: block; }
+.thumb .tname { font-size: 9px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+
+#cfg {
+  flex: 1; min-height: 220px;
+  background: #111; color: #9d9; border: 1px solid #2e2e2e;
+  border-radius: 4px; padding: 10px;
+  font-size: 12px; font-family: 'Courier New', monospace;
+  line-height: 1.55; resize: none; outline: none;
+  white-space: pre; overflow-x: auto; overflow-y: auto;
+}
+#cfg:focus { border-color: #555; }
+
+#status { font-size: 11px; color: #666; min-height: 16px; }
+
+.btns { display: flex; gap: 8px; }
+button {
+  flex: 1; padding: 9px 12px; border: none; border-radius: 4px;
+  cursor: pointer; font-size: 12px; font-weight: bold;
+  font-family: 'Courier New', monospace;
+  transition: background .15s;
+}
+#btn-render  { background: #b73; color: #fff; }
+#btn-render:hover  { background: #d85; }
+#btn-dl-svg  { background: #234; color: #9cf; }
+#btn-dl-svg:hover  { background: #345; }
+#btn-dl-png  { background: #243; color: #9cb; }
+#btn-dl-png:hover  { background: #354; }
+#png-scale {
+  background: #111; color: #777; border: 1px solid #2e2e2e;
+  border-radius: 3px; padding: 1px 4px;
+  font-size: 10px; font-family: 'Courier New', monospace;
+}
+.thumb { position: relative; }
+.tdel {
+  position: absolute; top: 0; right: 0;
+  background: rgba(0,0,0,.55); color: #666;
+  font-size: 10px; line-height: 1; padding: 1px 3px;
+  cursor: pointer; border-radius: 0 3px 0 3px;
+}
+.tdel:hover { background: #600; color: #f88; }
+
+#preview {
+  flex: 1; background: #0e0e0e; border-radius: 4px;
+  overflow: auto; display: flex; align-items: center; justify-content: center;
+  min-height: 0;
+}
+#preview svg { max-width: 100%; max-height: 100%; display: block; }
+#preview-hint { color: #333; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div id="left">
+  <div>
+    <div class="label">Images — reference by filename in config</div>
+    <div id="drop-zone" onclick="document.getElementById('file-inp').click()">
+      Drop images here · click to browse
+    </div>
+    <input id="file-inp" type="file" multiple accept="image/*" style="display:none">
+    <div style="display:flex;gap:4px;margin-top:6px">
+      <input id="url-inp" type="text" placeholder="Paste image URL…" spellcheck="false"
+        style="flex:1;background:#111;color:#9d9;border:1px solid #2e2e2e;border-radius:3px;
+               padding:5px 7px;font-size:11px;font-family:'Courier New',monospace;outline:none"
+        onkeydown="if(event.key==='Enter')loadFromUrl()">
+      <button onclick="loadFromUrl()" style="flex:none;width:36px;padding:0;font-size:14px;
+        background:#234;color:#9cf;border-radius:3px" title="Load URL">↓</button>
+    </div>
+    <div id="img-list"></div>
+  </div>
+
+  <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+    <div class="label">Config · YAML &nbsp;<span style="color:#444">ctrl+enter · ctrl+/ comments</span></div>
+    <textarea id="cfg" spellcheck="false" wrap="off"></textarea>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="btns">
+    <button id="btn-render" onclick="render()">▶ Render</button>
+    <button id="btn-dl-svg" onclick="downloadSVG()">↓ SVG</button>
+    <button id="btn-dl-png" onclick="downloadPNG()">↓ PNG</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#555">
+    <span>PNG scale:</span>
+    <select id="png-scale">
+      <option value="1">1×</option>
+      <option value="2" selected>2×</option>
+      <option value="3">3×</option>
+    </select>
+    <span style="color:#3a3a3a">· best in Chrome/Firefox</span>
+  </div>
+</div>
+
+<div id="right">
+  <div class="label">Preview</div>
+  <div id="preview">
+    <span id="preview-hint">Hit Render ▶</span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+
+<script>
+'use strict';
+
+// ── state ─────────────────────────────────────────────────────────────────────
+const uploadedImages = {};
+const fontCache      = {};
+let   lastSVG        = '';
+
+// ── default config ────────────────────────────────────────────────────────────
+document.getElementById('cfg').value = `\
+# ── Block text ────────────────────────────────────────────────────────────────
+text:
+  lines:
+    - "SOME       "     # one entry per line of block letters
+    - "    WHERE"       # one entry per line of block letters
+  x_offset: 0           # shift entire block left/right from auto-center (px)
+  y_offset: -250        # shift entire block up/down (px; negative = up)
+  # kerning: manual pair adjustments in pixels (negative = tighter spacing)
+  kerning:
+    WH: -10             # tighten W→H gap by 10px
+
+# ── Script header (above block letters) ──────────────────────────────────────
+header:
+  text: "Greetings from"
+  size: 100             # font size in px
+  color: "#f0d92b"
+  slant: 8              # italic lean in degrees (positive = right)
+  baseline_angle: -30   # match block text angle; negative = rises left→right
+  shadow: "#0f2745"     # drop-shadow color; omit to disable
+  shadow_x: 6           # shadow offset (px)
+  shadow_y: 6
+  # x_offset / y_offset: nudge from auto-position (px); use x/y for absolute coords
+  x_offset: -50
+  y_offset: 70
+
+# ── Script footer (below block letters) ──────────────────────────────────────
+footer:
+  text: "Your postcard, your way"
+  size: 70
+  color: "#f0d92b"
+  slant: 0
+  baseline_angle: 0
+  shadow: "#0f2745"
+  shadow_x: 6
+  shadow_y: 6
+  x_offset: 0
+  y_offset: 40
+
+# ── Images ────────────────────────────────────────────────────────────────────
+# Simple form:   background: "filename.jpg"
+# Extended form: background: { file: "filename.jpg", scale: 1.2, rotation: -5,
+#                              offset_x: 0, offset_y: 100 }
+#
+# images.block  — one photo clipped through ALL letters (default)
+# images.letters — override per letter; use a letter-keyed object OR a positional array:
+#
+#   Object form (by letter character):
+#     letters:
+#       S: "photo1.jpg"
+#       O: "photo2.jpg"
+#       M: { file: "photo3.jpg", scale: 1.3 }
+#       # letters not listed fall back to images.block
+#
+#   Array form (by position, left to right):
+#     letters:
+#       - "photo1.jpg"
+#       - "photo2.jpg"
+#       - "photo3.jpg"
+#
+# Images can be uploaded via drag-and-drop, the file picker, or pasted as a URL.
+images:
+  # Butterfield_Elementary_School_and_Lake_Elsinore
+  background: "Butterfield_Elementary_School_and_Lake_Elsinore.jpg"
+  block: {
+    # https://upload.wikimedia.org/wikipedia/commons/b/b5/Lake_Elsinore%2C_CA%2C_USA_-_panoramio_%2839%29.jpg
+    file: "Lake_Elsinore%2C_CA%2C_USA_-_panoramio_%2839%29.jpg",
+    scale: 0.7,
+    rotation: -5,
+    offset_x: -100,
+    offset_y: -100
+  }
+  letters:
+    # S: "photo1.jpg"
+    # O: "photo2.jpg"
+    # M: "photo3.jpg"
+
+# ── Style ─────────────────────────────────────────────────────────────────────
+style:
+  font_size:       450   # size of first letter, px (far/small end)
+  font_size_end:   550   # size of last letter, px  (near/large end)
+                         # set both equal for uniform size
+  baseline_angle:  -22   # tilt of the text baseline in degrees
+                         # negative = rises left→right; 0 = flat
+  arc_radius:      2800  # curve the baseline (perpendicular to its angle)
+                         # 0 = straight; larger = flatter curve (try 1200–4000)
+  slant:            12   # italic shear of block letters in degrees; 0 = upright
+
+  # 3-D extrusion
+  depth:            52   # extrusion depth in px
+  depth_angle:      22   # direction of extrusion from horizontal (degrees)
+                         # keep low (18–28) for the vintage postcard look
+  side_color:     "#880808"      # base colour of 3-D side faces
+  side_color_dark: "#111111"     # darker tone for bottom/horizontal faces
+                                 # omit to use a flat side_color
+
+  # Letter face
+  accent_color:   "#050505"      # thin border stripe around each letter face
+  accent_width:     10           # half-width of that stripe in px; 0 to disable
+  outline_color:  "#100000"      # outer outline around letters + extrusion
+  outline_width:    6            # stroke width in px; 0 to disable
+  outline_inner_color: "#e8c890" # second, thinner inner ring; omit to disable
+  outline_inner_width: 2
+  face_color:     "#c06030"      # solid fill when no block/letter image is set
+
+  # Background
+  background_color: "#c8a86a"   # solid colour shown behind any background image
+
+  # Spacing
+  letter_spacing:  -0.08  # extra space between letters as a fraction of advance width
+                           # negative = tighter; 0 = font default; 0.05 = 5% wider
+  line_spacing:    50      # extra gap between lines (px), beyond the extrusion depth
+
+  # Vintage aging — each value 0–1; omit a key or set to 0 to disable that effect
+  matte:    0.50   # lift the black point / flatten contrast (matte print feel)
+  warmth:   0.50   # warm sepia cast (boosts reds, reduces blues)
+  grain:    0.50   # film grain via fractal noise + soft-light blend
+  vignette: 0.50   # darken edges with a radial gradient overlay
+
+# ── Canvas ────────────────────────────────────────────────────────────────────
+canvas:
+  width:  1800    # output size in px (also the SVG viewport)
+  height: 1200
+`;
+
+// ── fonts ─────────────────────────────────────────────────────────────────────
+const FONTS = {
+  Anton:    'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/anton/Anton-Regular.ttf',
+  Pacifico: 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/pacifico/Pacifico-Regular.ttf',
+};
+
+async function getFont(name) {
+  if (fontCache[name]) return fontCache[name];
+  const url = FONTS[name];
+  if (!url) throw new Error(`Unknown font: "${name}". Available: ${Object.keys(FONTS).join(', ')}`);
+  setStatus(`Loading font: ${name}…`);
+  fontCache[name] = await opentype.load(url);
+  return fontCache[name];
+}
+
+// ── image upload ──────────────────────────────────────────────────────────────
+function ingestFiles(files) {
+  for (const f of files) {
+    const reader = new FileReader();
+    reader.onload = e => { uploadedImages[f.name] = e.target.result; upsertThumb(f.name, e.target.result); };
+    reader.readAsDataURL(f);
+  }
+}
+
+function upsertThumb(name, url) {
+  const list = document.getElementById('img-list');
+  const id   = 'th_' + name.replace(/[^a-zA-Z0-9]/g, '_');
+  let   el   = document.getElementById(id);
+  if (!el) { el = document.createElement('div'); el.className = 'thumb'; el.id = id; list.appendChild(el); }
+  el.innerHTML = `<img src="${url}"><div class="tname" title="${name}">${name}</div>`
+               + `<div class="tdel" title="Remove" onclick="deleteImg('${name.replace(/'/g,"\\'")}')">×</div>`;
+}
+
+function deleteImg(name) {
+  delete uploadedImages[name];
+  document.getElementById('th_' + name.replace(/[^a-zA-Z0-9]/g, '_'))?.remove();
+}
+
+async function loadFromUrl() {
+  const inp = document.getElementById('url-inp');
+  const raw = inp.value.trim();
+  if (!raw) return;
+  setStatus('Fetching…');
+  try {
+    const resp = await fetch(raw);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    // derive a short name from the URL path
+    let name = new URL(raw).pathname.split('/').pop().split('?')[0] || 'image';
+    if (!name.includes('.')) {
+      const ext = blob.type.split('/')[1]?.replace('jpeg','jpg') || 'jpg';
+      name += '.' + ext;
+    }
+    await new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        uploadedImages[name] = e.target.result;
+        upsertThumb(name, e.target.result);
+        resolve();
+      };
+      reader.readAsDataURL(blob);
+    });
+    inp.value = '';
+    setStatus(`Loaded: ${name}`);
+  } catch (err) {
+    setStatus(`URL load failed: ${err.message} (CORS?)`);
+  }
+}
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop',      e => { e.preventDefault(); dz.classList.remove('over'); ingestFiles(e.dataTransfer.files); });
+document.getElementById('file-inp').addEventListener('change', e => ingestFiles(e.target.files));
+document.getElementById('cfg').addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); render(); return; }
+
+  // Ctrl-/ (or Cmd-/) — toggle YAML comments on selected lines (VS Code style)
+  if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+    e.preventDefault();
+    const ta  = e.target;
+    const val = ta.value;
+    const ss  = ta.selectionStart, se = ta.selectionEnd;
+
+    // Expand to full line boundaries
+    const lineStart = val.lastIndexOf('\n', ss - 1) + 1;
+    const rawEnd    = val.indexOf('\n', se);
+    const lineEnd   = rawEnd === -1 ? val.length : rawEnd;
+
+    const lines = val.slice(lineStart, lineEnd).split('\n');
+
+    // If every non-blank line already has a # (at any indent), uncomment; else comment.
+    const allCommented = lines.every(l => l.trim() === '' || l.trimStart().startsWith('#'));
+
+    const toggled = lines.map(l => {
+      if (l.trim() === '') return l;
+      if (allCommented) {
+        // Remove `# ` or `#` immediately after the indent
+        return l.replace(/^(\s*)#[ \t]?/, '$1');
+      } else {
+        // Insert `# ` at the indent level (VS Code style)
+        return l.replace(/^(\s*)/, '$1# ');
+      }
+    });
+
+    const newBlock = toggled.join('\n');
+    ta.value = val.slice(0, lineStart) + newBlock + val.slice(lineEnd);
+    ta.selectionStart = lineStart;
+    ta.selectionEnd   = lineStart + newBlock.length;
+  }
+});
+
+// ── stock image auto-loading ──────────────────────────────────────────────────
+// Works when served over HTTP (node serve.js / python -m http.server).
+// Silently skipped when opened as file://.
+const STOCK = ['spain.jpg','toledo.jpg','sunset.jpg','kyoto.jpg','cadezan.jpg','japan.jpg'];
+
+async function loadStockImages() {
+  if (window.location.protocol === 'file:') {
+    setStatus('Tip: run "node serve.js" to auto-load stock images.');
+    return;
+  }
+  let loaded = 0;
+  setStatus('Loading stock images…');
+  await Promise.all(STOCK.map(async name => {
+    try {
+      const resp = await fetch(name);
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => { uploadedImages[name] = e.target.result; upsertThumb(name, e.target.result); loaded++; resolve(); };
+        reader.readAsDataURL(blob);
+      });
+    } catch (_) { /* not found, skip */ }
+  }));
+  setStatus(loaded ? `${loaded} stock image${loaded > 1 ? 's' : ''} loaded. Hit Render ▶` : '');
+}
+
+loadStockImages();
+
+// ── side-face geometry ────────────────────────────────────────────────────────
+// Extracts glyph contours as bezier command lists (no flattening).
+// Each contour: { cmds: [...], ns: 1|-1 }  ns = winding sign (1=CW outer, -1=CCW hole)
+// Command fields by type:
+//   L: { type, x0,y0, x,y }
+//   C: { type, x0,y0, x1,y1, x2,y2, x,y }   (cubic)
+//   Q: { type, x0,y0, xc,yc, x,y }            (quadratic)
+function extractContourCmds(otPath) {
+  const result = [];
+  let cmds=null, pts=null, sx=0, sy=0, cx=0, cy=0;
+  const flush = () => {
+    if (cmds && cmds.length) {
+      const ns = signedArea(pts) >= 0 ? 1 : -1;
+      result.push({ cmds, ns });
+    }
+    cmds = null; pts = null;
+  };
+  for (const c of otPath.commands) {
+    switch (c.type) {
+      case 'M': flush(); cmds=[]; pts=[c.x,c.y]; sx=cx=c.x; sy=cy=c.y; break;
+      case 'L':
+        if (cmds) { cmds.push({type:'L',x0:cx,y0:cy,x:c.x,y:c.y}); pts.push(c.x,c.y); }
+        cx=c.x; cy=c.y; break;
+      case 'C':
+        if (cmds) { cmds.push({type:'C',x0:cx,y0:cy,x1:c.x1,y1:c.y1,x2:c.x2,y2:c.y2,x:c.x,y:c.y}); pts.push(c.x,c.y); }
+        cx=c.x; cy=c.y; break;
+      case 'Q':
+        if (cmds) { cmds.push({type:'Q',x0:cx,y0:cy,xc:c.x1,yc:c.y1,x:c.x,y:c.y}); pts.push(c.x,c.y); }
+        cx=c.x; cy=c.y; break;
+      case 'Z':
+        if (cmds && (Math.abs(cx-sx)>0.01||Math.abs(cy-sy)>0.01)) {
+          cmds.push({type:'L',x0:cx,y0:cy,x:sx,y:sy}); pts.push(sx,sy);
+        }
+        flush(); cx=sx; cy=sy; break;
+    }
+  }
+  flush();
+  return result;
+}
+
+// Signed area of a flat [x,y,...] contour.
+// Positive = CW winding in screen-space (y-down) = outer contour for TrueType fonts.
+function signedArea(pts) {
+  let a=0, n=pts.length;
+  for (let i=0; i<n; i+=2) {
+    const j=(i+2)%n;
+    a += pts[i]*pts[j+1] - pts[j]*pts[i+1];
+  }
+  return a/2;
+}
+
+function lerpHex(c1, c2, t) {
+  const p=h=>parseInt(h.slice(1),16);
+  const a=p(c1), b=p(c2);
+  const r=Math.round(((a>>16)&255)+((((b>>16)&255)-((a>>16)&255))*t));
+  const g=Math.round(((a>>8) &255)+((((b>>8) &255)-((a>>8) &255))*t));
+  const bl=Math.round( (a    &255)+(( (b    &255)- (a    &255))*t));
+  return '#'+[r,g,bl].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+// Build smooth side-face strips from bezier command lists.
+// Each command produces one smooth ruled-surface strip: front curve + right edge +
+// back curve (reversed, offset by depth vector) + left edge.
+// Visibility uses chord normal; two-tone shading based on downward component.
+function buildSideFaces(contourCmds, ldx, ldy, sideColor, sideColorDark) {
+  let svg = '';
+  for (const { cmds, ns } of contourCmds) {
+    for (const cmd of cmds) {
+      // Chord-based outward normal (approximation; accurate for font-scale curves)
+      const ex = cmd.x - cmd.x0, ey = cmd.y - cmd.y0;
+      if (Math.abs(ex) < 0.01 && Math.abs(ey) < 0.01) continue; // degenerate
+      const nx = ns * ey, ny = ns * (-ex);
+      if (nx*ldx + ny*ldy <= 0) continue; // back-facing
+
+      let fill = sideColor;
+      if (sideColorDark) {
+        const len = Math.sqrt(nx*nx + ny*ny);
+        fill = lerpHex(sideColor, sideColorDark, Math.max(0, ny/len));
+      }
+
+      // Ruled-surface strip: front bezier → right edge → reversed back bezier → left edge
+      const f = v => v.toFixed(1);
+      let d = `M${f(cmd.x0)},${f(cmd.y0)} `;
+      if (cmd.type === 'L') {
+        d += `L${f(cmd.x)},${f(cmd.y)} `;
+        d += `L${f(cmd.x+ldx)},${f(cmd.y+ldy)} `;
+        d += `L${f(cmd.x0+ldx)},${f(cmd.y0+ldy)}`;
+      } else if (cmd.type === 'C') {
+        d += `C${f(cmd.x1)},${f(cmd.y1)} ${f(cmd.x2)},${f(cmd.y2)} ${f(cmd.x)},${f(cmd.y)} `;
+        d += `L${f(cmd.x+ldx)},${f(cmd.y+ldy)} `;
+        d += `C${f(cmd.x2+ldx)},${f(cmd.y2+ldy)} ${f(cmd.x1+ldx)},${f(cmd.y1+ldy)} ${f(cmd.x0+ldx)},${f(cmd.y0+ldy)}`;
+      } else if (cmd.type === 'Q') {
+        d += `Q${f(cmd.xc)},${f(cmd.yc)} ${f(cmd.x)},${f(cmd.y)} `;
+        d += `L${f(cmd.x+ldx)},${f(cmd.y+ldy)} `;
+        d += `Q${f(cmd.xc+ldx)},${f(cmd.yc+ldy)} ${f(cmd.x0+ldx)},${f(cmd.y0+ldy)}`;
+      }
+      svg += `<path d="${d} Z" fill="${fill}"/>\n`;
+    }
+  }
+  return svg;
+}
+
+// ── glyph layout ─────────────────────────────────────────────────────────────
+// Returns per-glyph descriptors: { gx, gy, theta (deg), localPath, contours }
+//
+// fontSizeStart / fontSizeEnd: interpolate letter size across the word (perspective).
+//   Set both equal (or fontSizeEnd null) for uniform size.
+// baselineAngle (degrees): tilt the entire baseline — negative rises left→right.
+//   Combined with arcRadius: arc curvature is applied in the rotated baseline frame.
+function glyphDataForLine(font, text, fontSizeStart, fontSizeEnd, lsEm, arcRadius, baselineAngle, cx, baselineY, kernPairs={}) {
+  const gs    = font.stringToGlyphs(text);
+  const n     = gs.length;
+  const fsEnd = (fontSizeEnd != null) ? fontSizeEnd : fontSizeStart;
+  const sizes = gs.map((_, i) => n > 1
+    ? fontSizeStart + (fsEnd - fontSizeStart) * (i / (n - 1))
+    : fontSizeStart);
+  const scales = sizes.map(sz => sz / font.unitsPerEm);
+  const advs   = gs.map((g, i) => g.advanceWidth * scales[i]);
+  const spaces = advs.map((a, i) => i < n - 1 ? a * lsEm : 0);
+  const totalW = advs.reduce((s, a, i) => s + a + spaces[i], 0);
+
+  const bangle = (baselineAngle || 0) * Math.PI / 180;
+  const cosBa  = Math.cos(bangle), sinBa = Math.sin(bangle);
+  const result = [];
+  let cumW = 0;
+
+  for (let i = 0; i < n; i++) {
+    const g = gs[i], adv = advs[i], halfAdv = adv / 2;
+    const xOff = -totalW / 2 + cumW + halfAdv;
+
+    let gx, gy, theta;
+    if (!arcRadius) {
+      gx    = cx + xOff * cosBa;
+      gy    = baselineY + xOff * sinBa;
+      theta = baselineAngle || 0;
+    } else {
+      // Arc is computed in the diagonal-rotated frame, then rotated back to global.
+      const phi      = xOff / arcRadius;
+      const ax       = arcRadius * Math.sin(phi);
+      const ay       = arcRadius * (1 - Math.cos(phi));
+      const arcTheta = phi * 180 / Math.PI;
+      gx    = cx + ax * cosBa - ay * sinBa;
+      gy    = baselineY + ax * sinBa + ay * cosBa;
+      theta = (baselineAngle || 0) + arcTheta;
+    }
+
+    const otPath     = g.getPath(-halfAdv, 0, sizes[i]);
+    const localPath  = otPath.toPathData(2);
+    const contourCmds = extractContourCmds(otPath);
+    result.push({ gx, gy, theta, localPath, contourCmds, fontSize: sizes[i] });
+
+    // OpenType kern pairs (font units → px) + manual override
+    const otKern  = (i < n-1 && font.getKerningValue)
+      ? (font.getKerningValue(gs[i], gs[i+1]) || 0) * scales[i]
+      : 0;
+    const manKern = (i < n-1 && kernPairs)
+      ? (kernPairs[text[i] + text[i+1]] || 0)
+      : 0;
+    cumW += adv + spaces[i] + otKern + manKern;
+  }
+  return result;
+}
+
+// ── image helpers ─────────────────────────────────────────────────────────────
+// Accept: null | "filename" | { file, scale, rotation, offset_x, offset_y }
+function normalizeImg(val) {
+  if (!val) return null;
+  if (typeof val === 'string') return { file:val, scale:1, rotation:0, ox:0, oy:0 };
+  return { file:val.file, scale:val.scale||1, rotation:val.rotation||0, ox:val.offset_x||0, oy:val.offset_y||0 };
+}
+
+// Resolve the image config for a single glyph.
+// images.letters can be an object keyed by letter ("S","P",...) or a positional array.
+// Falls back to images.block if no per-letter entry exists.
+function resolveLetterImg(letter, index, imagesCfg, fallback) {
+  const lm = imagesCfg?.letters;
+  if (!lm) return fallback;
+  const raw = Array.isArray(lm) ? lm[index] : (lm[letter] ?? null);
+  return raw ? normalizeImg(raw) : fallback;
+}
+
+// Generate an <image> element centered on canvas with scale/rotation/offset.
+// Uses 1.5× overscan so the image still covers after rotation.
+function imgSVG(url, W, H, opts) {
+  const { scale:s=1, rotation:r=0, ox=0, oy=0 } = opts;
+  const cx=W/2+ox, cy=H/2+oy;
+  const f=1.5;
+  const iw=W*s*f, ih=H*s*f;
+  const rot = r ? ` transform="rotate(${r},${cx.toFixed(1)},${cy.toFixed(1)})"` : '';
+  return `<image href="${url}" x="${(cx-iw/2).toFixed(1)}" y="${(cy-ih/2).toFixed(1)}" ` +
+         `width="${iw.toFixed(1)}" height="${ih.toFixed(1)}" ` +
+         `preserveAspectRatio="xMidYMid slice"${rot}/>\n`;
+}
+
+// ── script text rendering ─────────────────────────────────────────────────────
+// cfg keys: text, size, size_end, color, slant, arc_radius, baseline_angle,
+//           shadow (color), shadow_x, shadow_y
+function renderScriptLine(font, cfg, cx, baselineY) {
+  if (!cfg?.text) return '';
+  const { text, color } = cfg;
+  const fs     = cfg.size;
+  const fsEnd  = cfg.size_end   ?? fs;
+  const sl     = cfg.slant      || 0;
+  const arc    = cfg.arc_radius || 0;
+  const bangle = cfg.baseline_angle || 0;
+  const shadow = cfg.shadow     || null;
+  const sox    = cfg.shadow_x  != null ? cfg.shadow_x : 4;
+  const soy    = cfg.shadow_y  != null ? cfg.shadow_y : 5;
+
+  const glyphs = glyphDataForLine(font, text, fs, fsEnd, 0, arc, bangle, cx, baselineY);
+  let svg = '';
+  for (const g of glyphs) {
+    const base = `translate(${g.gx.toFixed(2)},${g.gy.toFixed(2)})`
+               + (g.theta ? ` rotate(${g.theta.toFixed(3)})` : '')
+               + (sl      ? ` skewX(${(-sl).toFixed(2)})` : '');
+    if (shadow) {
+      const shxf = `translate(${(g.gx+sox).toFixed(2)},${(g.gy+soy).toFixed(2)})`
+                 + (g.theta ? ` rotate(${g.theta.toFixed(3)})` : '')
+                 + (sl      ? ` skewX(${(-sl).toFixed(2)})` : '');
+      svg += `<g transform="${shxf}"><path d="${g.localPath}" fill="${shadow}"/></g>\n`;
+    }
+    svg += `<g transform="${base}"><path d="${g.localPath}" fill="${color}"/></g>\n`;
+  }
+  return svg;
+}
+
+// ── vintage aging filter ──────────────────────────────────────────────────────
+// Returns SVG filter def + wrapper attribute + vignette defs/element.
+// Each knob is 0–1:
+//   matte   — lift blacks / reduce contrast (flat print look)
+//   warmth  — warm sepia cast (yellows, reduces blue)
+//   grain   — fractal film grain via soft-light blend
+//   vignette — darken edges with radial gradient overlay
+function buildAgedFilter(s) {
+  const grain    = s.grain    ?? 0;
+  const matte    = s.matte    ?? 0;
+  const warmth   = s.warmth   ?? 0;
+  const vignette = s.vignette ?? 0;
+
+  const hasFilter = grain > 0 || matte > 0 || warmth > 0;
+  let steps = '', prev = 'SourceGraphic', n = 0;
+  const nxt = () => `_f${n++}`;
+
+  // Matte + warmth: linear component transfer lifts blacks and shifts white point.
+  // Each channel gets a different intercept for the warm cast.
+  if (matte > 0 || warmth > 0) {
+    const m  = Math.min(matte,  1), w = Math.min(warmth, 1);
+    const sl = +(1 - m * 0.22).toFixed(3);
+    const iR = +(m * 0.12 + w * 0.06).toFixed(3);
+    const iG = +(m * 0.09 + w * 0.01).toFixed(3);
+    const iB = +(m * 0.07 - w * 0.05).toFixed(3);
+    const r  = nxt();
+    steps += `  <feComponentTransfer in="${prev}" result="${r}">\n`
+           + `    <feFuncR type="linear" slope="${sl}" intercept="${iR}"/>\n`
+           + `    <feFuncG type="linear" slope="${sl}" intercept="${iG}"/>\n`
+           + `    <feFuncB type="linear" slope="${sl}" intercept="${iB}"/>\n`
+           + `  </feComponentTransfer>\n`;
+    prev = r;
+  }
+
+  // Grain: fractalNoise blended soft-light, then lerped against the pre-grain image.
+  // k2=(1-grain)*original + k3=grain*blended gives smooth strength control.
+  if (grain > 0) {
+    const g = Math.min(grain, 1);
+    const [rN, rG, rF] = [nxt(), nxt(), nxt()];
+    steps += `  <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="2" seed="7" stitchTiles="stitch" result="${rN}"/>\n`
+           + `  <feBlend in="${prev}" in2="${rN}" mode="soft-light" result="${rG}"/>\n`
+           + `  <feComposite in="${prev}" in2="${rG}" operator="arithmetic" k1="0" k2="${+(1-g).toFixed(3)}" k3="${+g.toFixed(3)}" k4="0" result="${rF}"/>\n`;
+    prev = rF;
+  }
+
+  const filterDef  = hasFilter
+    ? `<filter id="f-aged" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">\n${steps}</filter>\n`
+    : '';
+  const filterAttr = hasFilter ? ' filter="url(#f-aged)"' : '';
+
+  // Vignette: radial gradient rect drawn on top of (outside) the filter group,
+  // so it's applied in screen space without being aged itself.
+  let vigDef = '', vigEl = '';
+  if (vignette > 0) {
+    const op = +(Math.min(vignette, 1) * 0.8).toFixed(2);
+    vigDef = `<radialGradient id="f-vig" cx="50%" cy="50%" r="72%">`
+           + `<stop offset="25%" stop-color="#000" stop-opacity="0"/>`
+           + `<stop offset="100%" stop-color="#000" stop-opacity="${op}"/>`
+           + `</radialGradient>\n`;
+    vigEl  = `<rect width="100%" height="100%" fill="url(#f-vig)"/>\n`;
+  }
+
+  return { filterDef, filterAttr, vigDef, vigEl };
+}
+
+// ── SVG generation ────────────────────────────────────────────────────────────
+async function makeSVG(cfg) {
+  const W=cfg.canvas.width, H=cfg.canvas.height;
+  const s=cfg.style;
+
+  const depRad = s.depth_angle * Math.PI / 180;
+  const dx = +(Math.cos(depRad) * s.depth).toFixed(2);
+  const dy = +(Math.sin(depRad) * s.depth).toFixed(2);
+
+  const blockFont  = await getFont('Anton');
+  const scriptFont = await getFont('Pacifico');
+
+  const fsStart = s.font_size;
+  const fsEnd   = s.font_size_end ?? s.font_size;
+  const bangle  = s.baseline_angle ?? 0;
+  const isDiag  = Math.abs(bangle) > 0.1;
+
+  // cap-height helper
+  const capHAt  = sz => (blockFont.tables.os2?.sCapHeight || blockFont.ascender) * (sz / blockFont.unitsPerEm);
+  const capH    = capHAt(fsStart);
+  const capHAvg = capHAt((fsStart + fsEnd) / 2);
+
+  const lsEm  = s.letter_spacing;
+  const lines = cfg.text.lines;
+  const arcR  = s.arc_radius || 0;
+  const slant = s.slant      || 0;
+
+  // ── vertical layout ──────────────────────────────────────────────────────
+  // Diagonal mode: block is centered on the canvas; header/footer use explicit x/y.
+  // Flat mode: traditional top-to-bottom flow with curY.
+  const headerH = cfg.header ? cfg.header.size * 1.3 : 0;
+  const footerH = cfg.footer ? cfg.footer.size * 1.3 : 0;
+  const secGap  = 28;
+  let   curY    = 0;
+  if (!isDiag) {
+    const blockH = lines.length * capH + (lines.length-1) * (s.line_spacing+dy) + dy;
+    const totalH = headerH + (headerH?secGap:0) + blockH + (footerH?secGap:0) + footerH;
+    curY = (H - totalH) / 2;
+  }
+
+  let defs='', body='', uid=0;
+
+  // ── background ───────────────────────────────────────────────────────────
+  body += `<rect width="${W}" height="${H}" fill="${s.background_color}"/>\n`;
+  const bgCfg = normalizeImg(cfg.images?.background);
+  if (bgCfg) {
+    const url = uploadedImages[bgCfg.file];
+    if (!url) throw new Error(`Image not uploaded: "${bgCfg.file}"`);
+    body += imgSVG(url, W, H, bgCfg);
+  }
+
+  // ── header ───────────────────────────────────────────────────────────────
+  if (cfg.header?.text) {
+    const hxBase = isDiag ? (cfg.header.x ?? W * 0.22) : W/2;
+    const hyBase = isDiag ? (cfg.header.y ?? H * 0.13) : curY + cfg.header.size * 0.85;
+    body += renderScriptLine(scriptFont, cfg.header, hxBase + (cfg.header.x_offset ?? 0), hyBase + (cfg.header.y_offset ?? 0));
+    if (!isDiag) curY += headerH + secGap;
+  }
+
+  // ── block lines ──────────────────────────────────────────────────────────
+  // blkCfg is the default for all letters; images.letters overrides per glyph.
+  const blkCfg = normalizeImg(cfg.images?.block);
+
+  const sdark       = s.side_color_dark || null;
+  const accentColor = s.accent_color   || null;
+  const accentWidth = s.accent_width   || 0;
+
+  // In diagonal mode center the word on the canvas, accounting for cap-height.
+  // text.x_offset / text.y_offset nudge from the auto position (px).
+  const textXOff = cfg.text?.x_offset ?? 0;
+  const textYOff = cfg.text?.y_offset ?? 0;
+  const diagBaselineY = H/2 + capHAvg * 0.32 + textYOff;
+  const blockCx = W/2 + textXOff;
+
+  for (let li=0; li<lines.length; li++) {
+    const baseline = isDiag
+      ? diagBaselineY + li * (capHAvg + s.line_spacing + dy)
+      : curY + capH + textYOff;
+    const kernPairs = cfg.text?.kerning || {};
+    const glyphs = glyphDataForLine(blockFont, lines[li], fsStart, fsEnd, lsEm, arcR, bangle, blockCx, baseline, kernPairs);
+
+    // Two passes: depth + sides first, front faces on top.
+    //
+    // Pass 1 — back-face fill + visible side-face quads (no outline on back face —
+    // a black outline at translate(ldx,ldy) bleeds through corner gaps).
+    for (const g of glyphs) {
+      const tr = g.theta * Math.PI / 180;
+      const c=Math.cos(-tr), sn=Math.sin(-tr);
+      const ldx = +(dx*c - dy*sn).toFixed(2);
+      const ldy = +(dx*sn + dy*c).toFixed(2);
+
+      const xf = `translate(${g.gx.toFixed(2)},${g.gy.toFixed(2)})`
+               + (g.theta ? ` rotate(${g.theta.toFixed(3)})` : '')
+               + (slant   ? ` skewX(${(-slant).toFixed(2)})` : '');
+
+      body += `<g transform="${xf}">\n`;
+      body += `  <path d="${g.localPath}" fill="${s.side_color}" transform="translate(${ldx},${ldy})"/>\n`;
+      body += buildSideFaces(g.contourCmds, ldx, ldy, s.side_color, sdark);
+      body += `</g>\n`;
+    }
+
+    // Pass 2 — front face (per-letter image or solid), accent inner stroke, outlines.
+    for (let gi=0; gi<glyphs.length; gi++) {
+      const g   = glyphs[gi];
+      const cid = `c${uid++}`;
+      const xf  = `translate(${g.gx.toFixed(2)},${g.gy.toFixed(2)})`
+                + (g.theta ? ` rotate(${g.theta.toFixed(3)})` : '')
+                + (slant   ? ` skewX(${(-slant).toFixed(2)})` : '');
+
+      defs += `<clipPath id="${cid}"><path d="${g.localPath}" transform="${xf}"/></clipPath>\n`;
+
+      // Per-letter image: images.letters overrides the shared block image for this glyph.
+      const gImgCfg = resolveLetterImg(lines[li][gi] || '', gi, cfg.images, blkCfg);
+      const gUrl    = gImgCfg ? uploadedImages[gImgCfg.file] : null;
+      if (gImgCfg && !gUrl) throw new Error(`Image not uploaded: "${gImgCfg.file}"`);
+
+      // Front face
+      if (gUrl) {
+        body += `<g clip-path="url(#${cid})">${imgSVG(gUrl, W, H, gImgCfg)}</g>\n`;
+      } else {
+        body += `<g transform="${xf}"><path d="${g.localPath}" fill="${s.face_color}"/></g>\n`;
+      }
+
+      // Accent border: stroke clipped to letter shape → only inner half visible.
+      if (accentColor && accentWidth > 0) {
+        body += `<g clip-path="url(#${cid})"><g transform="${xf}"><path d="${g.localPath}" fill="none" stroke="${accentColor}" stroke-width="${accentWidth * 2}" stroke-linejoin="round"/></g></g>\n`;
+      }
+
+      if (s.outline_width > 0) {
+        body += `<g transform="${xf}"><path d="${g.localPath}" fill="none" stroke="${s.outline_color}" stroke-width="${s.outline_width}" stroke-linejoin="round"/></g>\n`;
+      }
+      if (s.outline_inner_color && s.outline_inner_width > 0) {
+        body += `<g transform="${xf}"><path d="${g.localPath}" fill="none" stroke="${s.outline_inner_color}" stroke-width="${s.outline_inner_width}" stroke-linejoin="round"/></g>\n`;
+      }
+    }
+
+    if (!isDiag) curY += capH + s.line_spacing + dy;
+  }
+
+  // ── footer ───────────────────────────────────────────────────────────────
+  if (cfg.footer?.text) {
+    let fx, fy;
+    if (isDiag) {
+      fx = cfg.footer.x ?? W * 0.74;
+      fy = cfg.footer.y ?? H * 0.90;
+    } else {
+      const footerTop = curY - s.line_spacing + secGap;
+      fx = W/2;
+      fy = footerTop + cfg.footer.size * 0.85;
+    }
+    body += renderScriptLine(scriptFont, cfg.footer, fx + (cfg.footer.x_offset ?? 0), fy + (cfg.footer.y_offset ?? 0));
+  }
+
+  const { filterDef, filterAttr, vigDef, vigEl } = buildAgedFilter(s);
+  // Canvas clip-path hard-clips everything (background overscan, filter halos) to card bounds.
+  defs += `<clipPath id="cv"><rect width="${W}" height="${H}"/></clipPath>\n`
+        + filterDef + vigDef;
+
+  // Structure: clip(outer) → filter → content; vignette inside clip but outside filter.
+  const inner   = filterAttr ? `<g${filterAttr}>\n${body}</g>\n` : body;
+  const bodyOut = `<g clip-path="url(#cv)">\n${inner}${vigEl}</g>\n`;
+
+  return [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `<defs>\n${defs}</defs>`,
+    bodyOut,
+    `</svg>`,
+  ].join('\n');
+}
+
+// ── render / download ─────────────────────────────────────────────────────────
+function setStatus(msg, isErr=false) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.style.color = isErr ? '#f77' : '#666';
+}
+
+async function render() {
+  setStatus('Rendering…');
+  try {
+    const cfg = jsyaml.load(document.getElementById('cfg').value);
+    const svg = await makeSVG(cfg);
+    lastSVG = svg;
+    const preview = document.getElementById('preview');
+    preview.innerHTML = svg;
+    const svgEl = preview.querySelector('svg');
+    if (svgEl) { svgEl.style.maxWidth='100%'; svgEl.style.maxHeight='100%'; }
+    setStatus('Done.');
+  } catch (err) {
+    setStatus('Error: ' + err.message, true);
+    console.error(err);
+  }
+}
+
+function downloadSVG() {
+  if (!lastSVG) { setStatus('Render first.', true); return; }
+  const a = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([lastSVG], { type: 'image/svg+xml' })),
+    download: 'postcard.svg',
+  });
+  a.click();
+}
+
+async function downloadPNG() {
+  if (!lastSVG) { setStatus('Render first.', true); return; }
+  setStatus('Rasterising SVG…');
+  try {
+    const scale = parseFloat(document.getElementById('png-scale').value) || 2;
+    const m = lastSVG.match(/viewBox="0 0 (\d+) (\d+)"/);
+    if (!m) throw new Error('Cannot read canvas size from SVG.');
+    const W = +m[1], H = +m[2];
+    const pw = Math.round(W * scale), ph = Math.round(H * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = pw;
+    canvas.height = ph;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+
+    // Draw SVG onto canvas. Requires Chrome/Firefox for full filter support.
+    await new Promise((resolve, reject) => {
+      const blob = new Blob([lastSVG], { type: 'image/svg+xml;charset=utf-8' });
+      const url  = URL.createObjectURL(blob);
+      const img  = new Image();
+      img.onload  = () => { ctx.drawImage(img, 0, 0); URL.revokeObjectURL(url); resolve(); };
+      img.onerror = ()  => { URL.revokeObjectURL(url); reject(new Error('SVG render failed — try Chrome')); };
+      img.src = url;
+    });
+
+    await new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('Canvas export failed')); return; }
+        const a = Object.assign(document.createElement('a'), {
+          href:     URL.createObjectURL(blob),
+          download: `postcard-${pw}x${ph}.png`,
+        });
+        a.click();
+        resolve();
+      }, 'image/png');
+    });
+
+    setStatus(`PNG ${pw}×${ph}px — done.`);
+  } catch (err) {
+    setStatus('PNG: ' + err.message, true);
+    console.error(err);
+  }
+}
+</script>
+</body>
+</html>
