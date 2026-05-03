@@ -2,9 +2,9 @@
 
 A browser-based tool for making vintage-style "Greetings from…" postcards with 3D block letters, photo fill, and script text — all in a single HTML file, no server or build step required.
 
-## [→ Open the app](postcard.html)
+## [→ Open the app](https://roelle.github.io/retro-postcard/postcard.html)
 
-Click the link above (works on GitHub Pages). Or download `postcard.html` and open it directly in Chrome or Firefox — no server, no install.
+Or download `postcard.html` and open it directly in Chrome or Firefox — no server, no install.
 
 > **Stock images**: the tool can also auto-load images from a local `images/` folder when served over HTTP. Run `node serve.js` and open `http://localhost:3000` to use that.
 
